@@ -25,3 +25,8 @@ yarn-error.log*
 .vscode
 *.swp
 *.swo
+
+# amplify
+.amplify
+amplify_outputs*
+amplifyconfiguration*
