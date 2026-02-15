@@ -1,6 +1,6 @@
-# My AWS React App
+# carFNDR
 
-A simple task manager web application built with React and TypeScript, ready for deployment on AWS.
+carFNDR is an AWS Amplify application that scans and notes footage or images for specified vehicles. Using the Twelve Labs AI API carFNDR can use a basic description, such as a make, model, or license plate, to find a car in a video or photo.
 
 ## Features
 
