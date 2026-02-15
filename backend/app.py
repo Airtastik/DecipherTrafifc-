@@ -30,6 +30,42 @@ COMMON_MAKES = [
     "Volkswagen", "Volvo"
 ]
 
+# Popular models by make as fallback
+POPULAR_MODELS = {
+    "Toyota": ["Camry", "Corolla", "RAV4", "Highlander", "Tacoma", "Tundra", "4Runner", "Prius", "Sienna", "Avalon"],
+    "Honda": ["Accord", "Civic", "CR-V", "Pilot", "Odyssey", "Ridgeline", "HR-V", "Passport", "Fit"],
+    "Ford": ["F-150", "Mustang", "Explorer", "Escape", "Edge", "Bronco", "Ranger", "Expedition", "Maverick"],
+    "Chevrolet": ["Silverado", "Equinox", "Malibu", "Tahoe", "Traverse", "Camaro", "Corvette", "Colorado", "Blazer"],
+    "BMW": ["3 Series", "5 Series", "X3", "X5", "7 Series", "X1", "4 Series", "X7", "2 Series"],
+    "Mercedes-Benz": ["C-Class", "E-Class", "GLC", "GLE", "S-Class", "A-Class", "GLA", "GLS", "CLA"],
+    "Audi": ["A4", "Q5", "A3", "Q7", "A6", "Q3", "e-tron", "A5", "Q8"],
+    "Tesla": ["Model 3", "Model Y", "Model S", "Model X", "Cybertruck"],
+    "Nissan": ["Altima", "Rogue", "Sentra", "Pathfinder", "Frontier", "Maxima", "Murano", "Kicks"],
+    "Hyundai": ["Elantra", "Tucson", "Santa Fe", "Sonata", "Kona", "Palisade", "Venue", "Ioniq"],
+    "Kia": ["Forte", "Sportage", "Sorento", "Soul", "Telluride", "Seltos", "Stinger", "Carnival"],
+    "Mazda": ["CX-5", "Mazda3", "CX-9", "CX-30", "Mazda6", "MX-5 Miata", "CX-50"],
+    "Subaru": ["Outback", "Forester", "Crosstrek", "Impreza", "Ascent", "Legacy", "WRX"],
+    "Volkswagen": ["Jetta", "Tiguan", "Passat", "Atlas", "Golf", "Taos", "ID.4"],
+    "Lexus": ["RX", "ES", "NX", "IS", "GX", "LS", "UX", "LX"],
+    "Jeep": ["Wrangler", "Grand Cherokee", "Cherokee", "Compass", "Gladiator", "Renegade"],
+    "Ram": ["1500", "2500", "3500", "ProMaster"],
+    "GMC": ["Sierra", "Acadia", "Terrain", "Yukon", "Canyon"],
+    "Dodge": ["Charger", "Challenger", "Durango", "Ram"],
+    "Cadillac": ["Escalade", "XT5", "CT5", "XT4", "XT6"],
+    "Porsche": ["911", "Cayenne", "Macan", "Panamera", "Taycan", "718"],
+    "Land Rover": ["Range Rover", "Discovery", "Defender", "Range Rover Sport", "Range Rover Evoque"],
+    "Volvo": ["XC90", "XC60", "S60", "V60", "XC40", "S90"],
+    "Acura": ["MDX", "RDX", "TLX", "ILX", "NSX"],
+    "Infiniti": ["Q50", "QX60", "QX80", "Q60", "QX50"],
+    "Genesis": ["G70", "G80", "G90", "GV70", "GV80"],
+    "Mitsubishi": ["Outlander", "Eclipse Cross", "Mirage", "Outlander Sport"],
+    "Mini": ["Cooper", "Countryman", "Clubman"],
+    "Alfa Romeo": ["Giulia", "Stelvio", "Tonale"],
+    "Chrysler": ["Pacifica", "300", "Voyager"],
+    "Buick": ["Encore", "Envision", "Enclave"],
+    "Lincoln": ["Aviator", "Nautilus", "Navigator", "Corsair"],
+}
+
 def extract_high_quality_frame(video_path, timestamp_seconds):
     """Extract a high-quality frame from video at specific timestamp"""
     try:
@@ -108,7 +144,7 @@ def search_makes():
 
 @app.route('/api/cars/models', methods=['GET'])
 def search_models():
-    """Search car models using API Ninjas"""
+    """Search car models using API Ninjas with robust fallback to popular models"""
     try:
         make = request.args.get('make', '').strip()
         query = request.args.get('query', '').strip().lower()
@@ -120,60 +156,97 @@ def search_models():
                 "message": "Make is required"
             }), 400
         
-        # Build API request
-        api_url = 'https://api.api-ninjas.com/v1/cars'
-        params = {
-            'make': make,
-            'limit': 50  # Get more results to filter
-        }
+        print(f"\n=== MODEL SEARCH REQUEST ===")
+        print(f"Make: {make}")
+        print(f"Query: '{query}'")
+        print(f"Limit: {limit}")
         
-        headers = {
-            'X-Api-Key': API_NINJAS_KEY
-        }
+        models = []
+        api_worked = False
         
-        print(f"Fetching models for make: {make}")
-        response = requests.get(api_url, params=params, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            cars = response.json()
-            
-            # Extract unique models
-            all_models = list(set([car['model'] for car in cars if 'model' in car]))
-            
-            # Filter by query if provided
-            if query:
-                matching_models = [
-                    model for model in all_models 
-                    if query in model.lower()
-                ]
-            else:
-                matching_models = all_models
-            
-            # Sort and limit
-            matching_models.sort()
-            matching_models = matching_models[:limit]
-            
-            print(f"Found {len(matching_models)} models for {make}")
-            
-            return jsonify({
-                "status": "success",
-                "models": matching_models
-            })
+        # Try API Ninjas first if API key is available
+        if API_NINJAS_KEY:
+            try:
+                api_url = 'https://api.api-ninjas.com/v1/cars'
+                params = {
+                    'make': make,
+                    'limit': 50
+                }
+                
+                headers = {
+                    'X-Api-Key': API_NINJAS_KEY
+                }
+                
+                print(f"→ Calling API Ninjas for {make}...")
+                response = requests.get(api_url, params=params, headers=headers, timeout=10)
+                
+                print(f"→ API Response Status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    cars = response.json()
+                    print(f"→ API returned {len(cars)} cars")
+                    
+                    if cars and len(cars) > 0:
+                        models = list(set([car['model'] for car in cars if 'model' in car]))
+                        print(f"✓ Extracted {len(models)} unique models from API")
+                        api_worked = True
+                    else:
+                        print(f"⚠ API returned empty list")
+                elif response.status_code == 401:
+                    print(f"⚠ API Authentication failed - check API_NINJAS_KEY")
+                elif response.status_code == 404:
+                    print(f"⚠ API returned 404 - make not found")
+                else:
+                    print(f"⚠ API error {response.status_code}: {response.text[:200]}")
+                    
+            except requests.exceptions.Timeout:
+                print("⚠ API Ninjas request timeout (10s)")
+            except requests.exceptions.ConnectionError as e:
+                print(f"⚠ API connection error: {str(e)}")
+            except Exception as e:
+                print(f"⚠ API exception: {str(e)}")
         else:
-            print(f"API Ninjas error {response.status_code}: {response.text}")
-            return jsonify({
-                "status": "error",
-                "message": f"API error: {response.status_code}"
-            }), response.status_code
-            
-    except requests.exceptions.Timeout:
-        print("Request timeout")
+            print("⚠ No API_NINJAS_KEY found in environment")
+        
+        # Use fallback if API didn't work or returned no results
+        if not api_worked or len(models) == 0:
+            if make in POPULAR_MODELS:
+                models = POPULAR_MODELS[make].copy()
+                print(f"✓ Using fallback popular models for {make}: {len(models)} models")
+            else:
+                print(f"⚠ No fallback models available for '{make}'")
+                # Return empty list with success status so UI knows there are no models
+                return jsonify({
+                    "status": "success",
+                    "models": [],
+                    "source": "none"
+                })
+        
+        # Filter by query if provided
+        if query:
+            matching_models = [
+                model for model in models 
+                if query in model.lower()
+            ]
+            print(f"→ Filtered to {len(matching_models)} models matching '{query}'")
+        else:
+            matching_models = models
+        
+        # Sort and limit
+        matching_models.sort()
+        matching_models = matching_models[:limit]
+        
+        print(f"✓ Returning {len(matching_models)} models")
+        print("="*30 + "\n")
+        
         return jsonify({
-            "status": "error",
-            "message": "Request timeout"
-        }), 504
+            "status": "success",
+            "models": matching_models,
+            "source": "api" if api_worked else "fallback"
+        })
+            
     except Exception as e:
-        print(f"Error searching models: {str(e)}")
+        print(f"❌ Error searching models: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({
