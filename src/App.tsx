@@ -1,6 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import "./App.css";
 
+interface CarResult {
+  make: string;
+  model: string;
+  year: number;
+  class?: string;
+  fuel_type?: string;
+}
+
 const App: React.FC = () => {
   // Media States
   const [mediaFile, setMediaFile] = useState<string | null>(null);
@@ -8,13 +16,24 @@ const App: React.FC = () => {
   const [mediaType, setMediaType] = useState<"image" | "video" | null>(null);
 
   // Search States
-  const [showSearch, setShowSearch] = useState<boolean>(true); // Default open for better UX
+  const [showSearch, setShowSearch] = useState<boolean>(true);
   const [searchMode, setSearchMode] = useState<"simple" | "advanced">("simple");
   const [advancedSearch, setAdvancedSearch] = useState<string>("");
   const [make, setMake] = useState<string>("");
   const [model, setModel] = useState<string>("");
   const [color, setColor] = useState<string>("");
   const [licensePlate, setLicensePlate] = useState<string>("");
+
+  // Car API States
+  const [makeInput, setMakeInput] = useState<string>("");
+  const [modelInput, setModelInput] = useState<string>("");
+  const [showMakeSuggestions, setShowMakeSuggestions] = useState<boolean>(false);
+  const [showModelSuggestions, setShowModelSuggestions] = useState<boolean>(false);
+  const [isSearchingCars, setIsSearchingCars] = useState<boolean>(false);
+  const [uniqueMakes, setUniqueMakes] = useState<string[]>([]);
+  const [uniqueModels, setUniqueModels] = useState<string[]>([]);
+  const [selectedMakeIndex, setSelectedMakeIndex] = useState<number>(-1);
+  const [selectedModelIndex, setSelectedModelIndex] = useState<number>(-1);
 
   // Analysis States
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -25,9 +44,9 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stepsEndRef = useRef<HTMLDivElement>(null);
+  const makeSuggestionsRef = useRef<HTMLDivElement>(null);
+  const modelSuggestionsRef = useRef<HTMLDivElement>(null);
 
-  const makes = ["Toyota", "Honda", "Ford", "Chevrolet", "BMW", "Mercedes", "Audi", "Tesla", "Nissan", "Hyundai", "Opel"];
-  const models = ["Camry", "Accord", "F-150", "Silverado", "Model 3", "Civic", "Corolla", "Mustang", "CR-V", "RAV4", "A4", "Astra"];
   const colors = ["Black", "White", "Silver", "Gray", "Red", "Blue", "Green", "Yellow", "Orange", "Brown"];
 
   // Auto-scroll to latest step
@@ -36,6 +55,149 @@ const App: React.FC = () => {
       stepsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [analysisSteps, currentStep, isLoading]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (makeSuggestionsRef.current && !makeSuggestionsRef.current.contains(event.target as Node)) {
+        setShowMakeSuggestions(false);
+      }
+      if (modelSuggestionsRef.current && !modelSuggestionsRef.current.contains(event.target as Node)) {
+        setShowModelSuggestions(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Search for makes when user types
+  useEffect(() => {
+    const searchMakes = async () => {
+      if (makeInput.length < 1) {
+        setUniqueMakes([]);
+        setShowMakeSuggestions(false);
+        return;
+      }
+
+      setIsSearchingCars(true);
+
+      try {
+        const params = new URLSearchParams();
+        params.append("query", makeInput);
+
+        const response = await fetch(`http://127.0.0.1:8000/api/cars/makes?${params}`);
+        const data = await response.json();
+
+        if (data.status === "success") {
+          setUniqueMakes(data.makes);
+          setShowMakeSuggestions(data.makes.length > 0);
+        }
+      } catch (error) {
+        console.error("Error searching makes:", error);
+      } finally {
+        setIsSearchingCars(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchMakes, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [makeInput]);
+
+  // Search for models when user types (filtered by selected make if available)
+  useEffect(() => {
+    const searchModels = async () => {
+      if (!make) {
+        // No make selected, don't search
+        setUniqueModels([]);
+        setShowModelSuggestions(false);
+        return;
+      }
+
+      if (modelInput.length < 1) {
+        setUniqueModels([]);
+        setShowModelSuggestions(false);
+        return;
+      }
+
+      setIsSearchingCars(true);
+
+      try {
+        const params = new URLSearchParams();
+        params.append("make", make);
+        params.append("query", modelInput);
+        params.append("limit", "20");
+
+        const response = await fetch(`http://127.0.0.1:8000/api/cars/models?${params}`);
+        const data = await response.json();
+
+        if (data.status === "success") {
+          setUniqueModels(data.models);
+          setShowModelSuggestions(data.models.length > 0);
+        }
+      } catch (error) {
+        console.error("Error searching models:", error);
+      } finally {
+        setIsSearchingCars(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchModels, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [modelInput, make]);
+
+  const handleMakeSelect = (selectedMake: string) => {
+    setMake(selectedMake);
+    setMakeInput(selectedMake);
+    setShowMakeSuggestions(false);
+    setSelectedMakeIndex(-1);
+    // Clear model when make changes
+    setModel("");
+    setModelInput("");
+  };
+
+  const handleModelSelect = (selectedModel: string) => {
+    setModel(selectedModel);
+    setModelInput(selectedModel);
+    setShowModelSuggestions(false);
+    setSelectedModelIndex(-1);
+  };
+
+  const handleMakeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showMakeSuggestions || uniqueMakes.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedMakeIndex((prev) => (prev < uniqueMakes.length - 1 ? prev + 1 : prev));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedMakeIndex((prev) => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === "Enter" && selectedMakeIndex >= 0) {
+      e.preventDefault();
+      handleMakeSelect(uniqueMakes[selectedMakeIndex]);
+    } else if (e.key === "Escape") {
+      setShowMakeSuggestions(false);
+      setSelectedMakeIndex(-1);
+    }
+  };
+
+  const handleModelKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showModelSuggestions || uniqueModels.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedModelIndex((prev) => (prev < uniqueModels.length - 1 ? prev + 1 : prev));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedModelIndex((prev) => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === "Enter" && selectedModelIndex >= 0) {
+      e.preventDefault();
+      handleModelSelect(uniqueModels[selectedModelIndex]);
+    } else if (e.key === "Escape") {
+      setShowModelSuggestions(false);
+      setSelectedModelIndex(-1);
+    }
+  };
 
   // Simulate streaming analysis steps
   const simulateAnalysisSteps = () => {
@@ -66,7 +228,7 @@ const App: React.FC = () => {
         clearInterval(stepInterval);
         setCurrentStep("Analysis complete!");
       }
-    }, 600); // Add a step every 600ms
+    }, 600);
 
     return stepInterval;
   };
@@ -84,7 +246,6 @@ const App: React.FC = () => {
         setMediaType("video");
       }
 
-      // Clear previous results when new file is selected
       setResult("");
       setScreenshot(null);
       setAnalysisSteps([]);
@@ -97,7 +258,6 @@ const App: React.FC = () => {
   };
 
   const handleSearch = async (): Promise<void> => {
-    // Validation
     if (!rawFile) {
       alert("Please insert a media file first.");
       return;
@@ -107,7 +267,6 @@ const App: React.FC = () => {
     setResult("");
     setScreenshot(null);
 
-    // Start simulated streaming steps
     const stepInterval = simulateAnalysisSteps();
 
     const formData = new FormData();
@@ -124,8 +283,6 @@ const App: React.FC = () => {
       });
 
       const data = await response.json();
-
-      // Clear interval once we get the response
       clearInterval(stepInterval);
 
       if (data.status === "success") {
@@ -190,38 +347,100 @@ const App: React.FC = () => {
 
               {searchMode === "simple" ? (
                 <div className="simple-search">
-                  <div className="search-field">
+                  <div
+                    className="search-field"
+                    ref={makeSuggestionsRef}>
                     <label>Make</label>
-                    <select
-                      value={make}
-                      onChange={(e) => setMake(e.target.value)}
-                      disabled={isLoading}>
-                      <option value="">Select Make</option>
-                      {makes.map((m) => (
-                        <option
-                          key={m}
-                          value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="input-with-clear">
+                      <input
+                        type="text"
+                        value={makeInput}
+                        onChange={(e) => setMakeInput(e.target.value)}
+                        onFocus={() => makeInput.length >= 1 && setShowMakeSuggestions(true)}
+                        onKeyDown={handleMakeKeyDown}
+                        placeholder="Type to search makes..."
+                        disabled={isLoading}
+                        className="autocomplete-input"
+                      />
+                      {makeInput && (
+                        <button
+                          className="clear-button"
+                          onClick={() => {
+                            setMakeInput("");
+                            setMake("");
+                            setModelInput("");
+                            setModel("");
+                          }}
+                          type="button">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    {showMakeSuggestions && uniqueMakes.length > 0 && (
+                      <div className="suggestions-dropdown">
+                        {isSearchingCars && <div className="suggestions-loading">Searching...</div>}
+                        {uniqueMakes.map((makeName, index) => (
+                          <div
+                            key={index}
+                            className={`suggestion-item ${index === selectedMakeIndex ? "selected" : ""}`}
+                            onClick={() => handleMakeSelect(makeName)}
+                            onMouseEnter={() => setSelectedMakeIndex(index)}>
+                            <div className="suggestion-main">
+                              <strong>{makeName}</strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {makeInput.length >= 1 && !isSearchingCars && uniqueMakes.length === 0 && (
+                      <div className="suggestions-dropdown">
+                        <div className="no-results">No makes found for "{makeInput}"</div>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="search-field">
-                    <label>Model</label>
-                    <select
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      disabled={isLoading}>
-                      <option value="">Select Model</option>
-                      {models.map((m) => (
-                        <option
-                          key={m}
-                          value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
+                  <div
+                    className="search-field"
+                    ref={modelSuggestionsRef}>
+                    <label>Model {make && <span className="field-hint">for {make}</span>}</label>
+                    <input
+                      type="text"
+                      value={modelInput}
+                      onChange={(e) => setModelInput(e.target.value)}
+                      onKeyDown={handleModelKeyDown}
+                      onFocus={() => {
+                        if (!make) {
+                          alert("Please select a Make first");
+                          return;
+                        }
+                        if (modelInput.length >= 1) setShowModelSuggestions(true);
+                      }}
+                      placeholder={make ? `Type to search ${make} models...` : "Select a make first"}
+                      disabled={isLoading || !make}
+                      className="autocomplete-input"
+                    />
+                    {!make && modelInput.length === 0 && <div className="field-hint-message">⬆ Select a make first to search models</div>}
+                    {showModelSuggestions && uniqueModels.length > 0 && (
+                      <div className="suggestions-dropdown">
+                        {isSearchingCars && <div className="suggestions-loading">Searching...</div>}
+                        {uniqueModels.map((modelName, index) => (
+                          <div
+                            key={index}
+                            className={`suggestion-item ${index === selectedModelIndex ? "selected" : ""}`}
+                            onClick={() => handleModelSelect(modelName)}
+                            onMouseEnter={() => setSelectedModelIndex(index)}>
+                            <div className="suggestion-main">
+                              <strong>{modelName}</strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {make && modelInput.length > 0 && !isSearchingCars && uniqueModels.length === 0 && showModelSuggestions && (
+                      <div className="suggestions-dropdown">
+                        <div className="no-results">No models found for "{modelInput}"</div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="search-field">
@@ -283,6 +502,19 @@ const App: React.FC = () => {
                   <span>{isLoading ? "Analyzing..." : "Execute Search"}</span>
                 </button>
               </div>
+
+              {/* Search Summary */}
+              {(make || model || color || licensePlate) && (
+                <div className="search-summary">
+                  <strong>Searching for:</strong>
+                  <div className="search-criteria">
+                    {color && <span className="criterion">{color}</span>}
+                    {make && <span className="criterion">{make}</span>}
+                    {model && <span className="criterion">{model}</span>}
+                    {licensePlate && <span className="criterion">Plate: {licensePlate}</span>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -367,12 +599,6 @@ const App: React.FC = () => {
                   src={screenshot}
                   alt="Car detection moment"
                   className="detection-image"
-                  onError={(e) => {
-                    console.error("Failed to load screenshot:", screenshot);
-                    const target = e.currentTarget as HTMLImageElement;
-                    target.style.border = "2px solid var(--border)";
-                    target.alt = "Failed to load image";
-                  }}
                 />
               </div>
             ) : (

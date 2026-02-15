@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import time
@@ -6,6 +6,7 @@ from twelvelabs import TwelveLabs
 from dotenv import load_dotenv
 import cv2
 import base64
+import requests
 
 load_dotenv()
 
@@ -14,6 +15,20 @@ CORS(app)
 
 # Initialize Twelve Labs
 client = TwelveLabs(api_key=os.getenv("TWELVE_KEY"))
+
+# API Ninjas API Key
+API_NINJAS_KEY = os.getenv("API_NINJAS_KEY")
+
+# Common car makes for quick suggestions (alphabetically sorted)
+COMMON_MAKES = [
+    "Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Buick", 
+    "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari", "Fiat", "Ford", 
+    "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", 
+    "Lamborghini", "Land Rover", "Lexus", "Lincoln", "Lotus", "Maserati", "Mazda", 
+    "McLaren", "Mercedes-Benz", "Mini", "Mitsubishi", "Nissan", "Opel", "Peugeot", 
+    "Porsche", "Ram", "Renault", "Rolls-Royce", "Subaru", "Tesla", "Toyota", 
+    "Volkswagen", "Volvo"
+]
 
 def extract_high_quality_frame(video_path, timestamp_seconds):
     """Extract a high-quality frame from video at specific timestamp"""
@@ -58,6 +73,113 @@ def extract_high_quality_frame(video_path, timestamp_seconds):
         import traceback
         traceback.print_exc()
         return None
+
+@app.route('/api/cars/makes', methods=['GET'])
+def search_makes():
+    """Search car makes from built-in list"""
+    try:
+        query = request.args.get('query', '').strip().lower()
+        
+        if len(query) < 1:
+            return jsonify({
+                "status": "success",
+                "makes": []
+            })
+        
+        # Filter makes that contain the query
+        matching_makes = [
+            make for make in COMMON_MAKES 
+            if query in make.lower()
+        ]
+        
+        print(f"Make search '{query}': found {len(matching_makes)} matches")
+        
+        return jsonify({
+            "status": "success",
+            "makes": matching_makes[:10]  # Limit to 10
+        })
+        
+    except Exception as e:
+        print(f"Error searching makes: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/cars/models', methods=['GET'])
+def search_models():
+    """Search car models using API Ninjas"""
+    try:
+        make = request.args.get('make', '').strip()
+        query = request.args.get('query', '').strip().lower()
+        limit = int(request.args.get('limit', '20'))
+        
+        if not make:
+            return jsonify({
+                "status": "error",
+                "message": "Make is required"
+            }), 400
+        
+        # Build API request
+        api_url = 'https://api.api-ninjas.com/v1/cars'
+        params = {
+            'make': make,
+            'limit': 50  # Get more results to filter
+        }
+        
+        headers = {
+            'X-Api-Key': API_NINJAS_KEY
+        }
+        
+        print(f"Fetching models for make: {make}")
+        response = requests.get(api_url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            cars = response.json()
+            
+            # Extract unique models
+            all_models = list(set([car['model'] for car in cars if 'model' in car]))
+            
+            # Filter by query if provided
+            if query:
+                matching_models = [
+                    model for model in all_models 
+                    if query in model.lower()
+                ]
+            else:
+                matching_models = all_models
+            
+            # Sort and limit
+            matching_models.sort()
+            matching_models = matching_models[:limit]
+            
+            print(f"Found {len(matching_models)} models for {make}")
+            
+            return jsonify({
+                "status": "success",
+                "models": matching_models
+            })
+        else:
+            print(f"API Ninjas error {response.status_code}: {response.text}")
+            return jsonify({
+                "status": "error",
+                "message": f"API error: {response.status_code}"
+            }), response.status_code
+            
+    except requests.exceptions.Timeout:
+        print("Request timeout")
+        return jsonify({
+            "status": "error",
+            "message": "Request timeout"
+        }), 504
+    except Exception as e:
+        print(f"Error searching models: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route('/api/search', methods=['POST'])
 def search_media():
